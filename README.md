@@ -1,6 +1,6 @@
 # Macfile
 
-原生 macOS 多目录文件工作台。一个主窗口中可持续添加目录窗口，独立使用标签、列表、图标、缩略图、分栏与画廊。Swift + AppKit 实现，无第三方运行依赖。当前源码版本：1.0.4；已发布安装包：1.0.3。
+原生 macOS 多目录文件工作台。一个主窗口中可持续添加目录窗口，独立使用标签、列表、图标、缩略图、分栏与画廊。Swift + AppKit 实现，无第三方运行依赖。当前版本：1.0.4。
 
 ![Macfile 双栏界面](docs/images/macfile-light.png)
 
@@ -28,7 +28,7 @@
 
 ## 运行与安装
 
-当前 Releases 提供 `Macfile-1.0.3-macOS-arm64.zip`（1.0.4 可从源码构建），解压后将 `Macfile.app` 放入 `~/Applications`（或 `/Applications`）并打开。当前安装包适用于 Apple Silicon；Intel 用户需要自行构建，尚未完成 Intel 运行回归。应用仅作本地签名，未经过 Apple 公证，其他 Mac 可能提示无法验证开发者。
+从 [1.0.4 Releases](https://github.com/ZWLFI/Macfile/releases/tag/v1.0.4) 下载 `Macfile-1.0.4-macOS-arm64.zip`，解压后将 `Macfile.app` 放入 `~/Applications`（或 `/Applications`）并打开。当前安装包适用于 Apple Silicon；Intel 用户需要自行构建，尚未完成 Intel 运行回归。应用仅作本地签名，未经过 Apple 公证，其他 Mac 可能提示无法验证开发者。
 
 也可以从源码构建：
 

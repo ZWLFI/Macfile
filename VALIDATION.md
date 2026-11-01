@@ -44,7 +44,7 @@
 - 跨卷运行验证覆盖本机 APFS 镜像，不等同于网络卷、ExFAT、设备故障、断电或并发外部写入的完整验收。
 - AppKit 集成测试运行真实控件和交互逻辑；拖放协议测试不等同于跨应用完整真实鼠标手势回归。未做 Intel、macOS 13 实机或逐格式 Quick Look 验证。
 - 画廊切换期间仍出现瞬时 collection flow-layout 宽度提示，最终布局检查通过；标准 URL 剪贴板读取有系统 sandbox_extension_consume 提示，隔离粘贴和内容验证成功。运行日志并非完全无警告。
-- 本轮未创建新 GitHub Release；现有公开安装包仍为 1.0.3。应用无 Developer ID 签名或 Apple 公证。
+- [1.0.4 Release](https://github.com/ZWLFI/Macfile/releases/tag/v1.0.4) 提供 Apple Silicon 安装包及 SHA-256 校验文件。应用无 Developer ID 签名或 Apple 公证。
 
 ## 复测
 
