@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleExecutable</key><string>Macfile</string>
+<key>CFBundleIdentifier</key><string>com.macfile.desktop</string>
+<key>CFBundleName</key><string>Macfile</string>
+<key>CFBundleDisplayName</key><string>Macfile</string>
+<key>CFBundleDevelopmentRegion</key><string>zh-Hans</string>
+<key>CFBundleLocalizations</key><array><string>zh-Hans</string></array>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleShortVersionString</key><string>1.0.3</string>
+<key>CFBundleVersion</key><string>4</string>
+<key>CFBundleIconFile</key><string>Macfile</string>
+<key>LSMinimumSystemVersion</key><string>13.0</string>
+<key>NSPrincipalClass</key><string>NSApplication</string>
+<key>NSHighResolutionCapable</key><true/>
+<key>NSDocumentsFolderUsageDescription</key><string>Macfile 需要访问你选择的文稿文件夹，以浏览和管理文件。</string>
+<key>NSDesktopFolderUsageDescription</key><string>Macfile 需要访问你选择的桌面文件夹，以浏览和管理文件。</string>
+<key>NSDownloadsFolderUsageDescription</key><string>Macfile 需要访问下载文件夹，以整理下载的文件。</string>
+<key>NSRemovableVolumesUsageDescription</key><string>Macfile 需要访问你选择的移动磁盘，以浏览、复制和移动文件。</string>
+<key>NSNetworkVolumesUsageDescription</key><string>Macfile 需要访问你选择的已挂载网络卷，以管理共享文件。</string>
+<key>CFBundleDocumentTypes</key><array><dict>
+<key>CFBundleTypeName</key><string>Folder</string><key>CFBundleTypeRole</key><string>Viewer</string><key>LSHandlerRank</key><string>Alternate</string><key>LSItemContentTypes</key><array><string>public.folder</string></array>
+</dict></array>
+</dict></plist>
