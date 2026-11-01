@@ -141,9 +141,13 @@ final class PaneSurface: NSView {
   override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
     guard sender.draggingPasteboard.string(forType: .macfilePane) != nil else {
       guard let pane else { return [] }
-      return FileDrop.operation(sender, to: pane.currentURL)
+      return FileDrop.operation(sender, to: pane.operationDirectoryURL)
     }
-    guard pane?.owner?.workspace.locked == false else { return [] }
+    guard draggedPaneID(sender) != nil else {
+      dropZone = nil
+      needsDisplay = true
+      return []
+    }
     let p = convert(sender.draggingLocation, from: nil)
     dropZone =
       p.x < bounds.width * 0.22
@@ -158,17 +162,26 @@ final class PaneSurface: NSView {
     dropZone = nil
     needsDisplay = true
   }
+  private func draggedPaneID(_ sender: NSDraggingInfo) -> UUID? {
+    guard let pane, let owner = pane.owner, !owner.workspace.locked,
+      let source = sender.draggingSource as? PaneHeader, source.pane?.owner === owner,
+      let raw = sender.draggingPasteboard.string(forType: .macfilePane),
+      let id = UUID(uuidString: raw), id != pane.id, source.pane?.id == id,
+      owner.workspace.panes.contains(where: { $0.id == id })
+    else { return nil }
+    return id
+  }
   override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
     defer {
       dropZone = nil
       needsDisplay = true
     }
     guard let pane else { return false }
-    guard let raw = sender.draggingPasteboard.string(forType: .macfilePane) else {
+    guard sender.draggingPasteboard.string(forType: .macfilePane) != nil else {
       guard let owner = pane.owner else { return false }
-      return FileDrop.receive(sender, to: pane.currentURL, owner: owner)
+      return FileDrop.receive(sender, to: pane.operationDirectoryURL, owner: owner)
     }
-    guard let id = UUID(uuidString: raw), id != pane.id else { return false }
+    guard let id = draggedPaneID(sender) else { return false }
     pane.owner?.rearrange(id, relativeTo: pane.id, zone: dropZone ?? "center")
     return true
   }

@@ -51,13 +51,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
     return true
   }
-  override init() {
+  static var stateDirectory: URL {
     if let override = ProcessInfo.processInfo.environment["MACFILE_STATE_DIR"] {
-      support = URL(fileURLWithPath: override)
-    } else {
-      support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("Macfile")
+      return URL(fileURLWithPath: override)
     }
+    return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+      .appendingPathComponent("Macfile")
+  }
+  override init() {
+    support = Self.stateDirectory
     store = StateStore(url: support.appendingPathComponent("state.json"))
     do { state = try store.load() } catch {
       state = AppState()
@@ -152,7 +154,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
       NSApp.orderFrontStandardAboutPanel(options: [
         .applicationName: "Macfile",
         .applicationVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString")
-          as? String ?? "1.0.3",
+          as? String ?? "1.0.4",
         .credits: NSAttributedString(string: "为多目录工作而设计。\n本地文件 · 自由工作台 · macOS 原生体验"),
       ])
       return

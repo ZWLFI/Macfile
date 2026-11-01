@@ -76,6 +76,7 @@ final class WorkspaceController: NSWindowController, NSWindowDelegate, NSMenuIte
   private var saveTimer: Timer?
   private var freeHistorySaved = false
   private var focusMonitor: Any?
+  private var volumeObservers: [NSObjectProtocol] = []
   var activePane: PaneController? { panes[workspace.active] }
   init(app: AppDelegate, workspace: Workspace) {
     self.app = app
@@ -102,6 +103,16 @@ final class WorkspaceController: NSWindowController, NSWindowDelegate, NSMenuIte
     buildToolbar()
     rebuild()
     reloadSidebar()
+    let notifications = NSWorkspace.shared.notificationCenter
+    for name in [
+      NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification,
+      NSWorkspace.didRenameVolumeNotification,
+    ] {
+      volumeObservers.append(
+        notifications.addObserver(forName: name, object: nil, queue: .main) {
+          [weak self] _ in self?.reloadSidebar()
+        })
+    }
     focusMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) {
       [weak self] event in
       guard let self, event.window === self.window, let root = self.window?.contentView,
@@ -370,6 +381,18 @@ final class WorkspaceController: NSWindowController, NSWindowDelegate, NSMenuIte
     layoutHistory.append(workspace)
     if layoutHistory.count > 50 { layoutHistory.removeFirst() }
   }
+  func undoLayout() {
+    guard var previous = layoutHistory.popLast() else { return }
+    let currentPanes = Dictionary(uniqueKeysWithValues: workspace.panes.map { ($0.id, $0) })
+    previous.panes = previous.panes.map { currentPanes[$0.id] ?? $0 }
+    if previous.panes.contains(where: { $0.id == workspace.active }) {
+      previous.active = workspace.active
+    }
+    if previous.id == workspace.id { previous.name = workspace.name }
+    workspace = previous
+    focused = nil
+    rebuild()
+  }
   func rebuild() {
     workspace.normalize()
     window?.title = "Macfile"
@@ -523,7 +546,7 @@ final class WorkspaceController: NSWindowController, NSWindowDelegate, NSMenuIte
   func addPane(path: String? = nil, horizontal: Bool? = nil) {
     pushLayout()
     let state = PaneState(
-      path: path ?? activePane?.currentURL.path
+      path: path ?? activePane?.operationDirectoryURL.path
         ?? FileManager.default.homeDirectoryForCurrentUser.path)
     if let horizontal {
       if workspace.tree == nil {
@@ -628,7 +651,7 @@ final class WorkspaceController: NSWindowController, NSWindowDelegate, NSMenuIte
   }
   func addBookmark() {
     guard let pane = activePane else { return }
-    let url = pane.selectedURLs.count == 1 ? pane.selectedURLs[0] : pane.currentURL
+    let url = pane.selectedURLs.count == 1 ? pane.selectedURLs[0] : pane.operationDirectoryURL
     askText("添加书签", value: url.lastPathComponent, detail: url.path, window: window) {
       [weak self] name in
       guard let self, let name, !name.isEmpty else { return }
@@ -652,7 +675,7 @@ final class WorkspaceController: NSWindowController, NSWindowDelegate, NSMenuIte
       inspectorName.stringValue = urls.isEmpty ? "选择文件查看详情" : "已选择 \(urls.count) 项"
       inspectorDetail.stringValue =
         (urls.isEmpty ? "选择一个文件，查看预览、大小与修改时间。" : "选择单个文件可查看详细信息。")
-        + "\n\n当前目录\n" + pane.currentURL.path
+        + "\n\n当前目录\n" + pane.operationDirectoryURL.path
       preview.previewItem = nil
       preview.isHidden = true
     }
@@ -665,11 +688,14 @@ final class WorkspaceController: NSWindowController, NSWindowDelegate, NSMenuIte
     selectionChanged()
   }
   func tasksChanged() {
-    let activeCount = app.tasks.records.filter { [.running, .queued, .paused].contains($0.status) }
-      .count
-    let item = window?.toolbar?.items.first { $0.itemIdentifier.rawValue == "tasks" }
-    item?.label = activeCount == 0 ? "任务" : "任务 · \(activeCount)"
-    if let r = app.tasks.records.first { setStatus(r.title + " · " + r.current) }
+    updateTaskIndicator()
+    let records = app.tasks.records
+    let current =
+      records.reversed().first { [.running, .paused].contains($0.status) }
+      ?? records.reversed().first { $0.status == .queued } ?? records.first
+    if let current {
+      setStatus(current.title + " · " + (current.current.isEmpty ? "等待执行" : current.current))
+    }
     tasksController?.reload()
     if !app.tasks.hasActive { panes.values.forEach { $0.refresh() } }
   }
@@ -712,7 +738,7 @@ final class WorkspaceController: NSWindowController, NSWindowDelegate, NSMenuIte
     }
   }
   func newFolder() {
-    guard let current = activePane?.currentURL else { return }
+    guard let current = activePane?.operationDirectoryURL else { return }
     askText("新建文件夹", value: "未命名文件夹", window: window) { [weak self] name in
       guard let self, let name else { return }
       var rule = RenameRule()
@@ -761,11 +787,11 @@ final class WorkspaceController: NSWindowController, NSWindowDelegate, NSMenuIte
     NSPasteboard.general.writeObjects(urls as [NSURL])
     setStatus("已复制 \(urls.count) 项 · ⌘V 复制到目标，⌥⌘V 移动到目标")
   }
-  func pasteFiles(move: Bool) {
+  func pasteFiles(move: Bool, from pasteboard: NSPasteboard = .general) {
     guard
-      let urls = NSPasteboard.general.readObjects(
+      let urls = pasteboard.readObjects(
         forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
-      let destination = activePane?.currentURL
+      let destination = activePane?.operationDirectoryURL
     else { return }
     transfer(urls, to: destination, move: move)
   }
@@ -778,6 +804,8 @@ final class WorkspaceController: NSWindowController, NSWindowDelegate, NSMenuIte
       item.state = command == "view-" + pane.state.current.mode.rawValue ? .on : .off
     }
     switch command {
+    case "closeTab":
+      item.title = workspace.panes.count == 1 && pane.state.tabs.count == 1 ? "关闭窗口" : "关闭标签"
     case "rename": return pane.selection.count == 1
     case "copy", "copyTo", "moveTo", "trash", "preview", "batchRename", "basketAdd":
       return !pane.selection.isEmpty
@@ -811,7 +839,12 @@ final class WorkspaceController: NSWindowController, NSWindowDelegate, NSMenuIte
     switch command {
     case "addPane": addPane()
     case "newTab": activePane?.addTab()
-    case "closeTab": activePane?.closeTab()
+    case "closeTab":
+      if workspace.panes.count == 1, activePane?.state.tabs.count == 1 {
+        window?.performClose(nil)
+      } else {
+        activePane?.closeTab()
+      }
     case "nextTab", "previousTab":
       guard let pane = activePane, !pane.state.tabs.isEmpty else { return }
       let count = pane.state.tabs.count
@@ -832,12 +865,7 @@ final class WorkspaceController: NSWindowController, NSWindowDelegate, NSMenuIte
     case "trash": trash()
     case "saveWorkspace": saveWorkspace()
     case "go": activePane?.goToPath()
-    case "undoLayout":
-      if let old = layoutHistory.popLast() {
-        workspace = old
-        focused = nil
-        rebuild()
-      }
+    case "undoLayout": undoLayout()
     case "undoFiles":
       if let record = app.tasks.records.first(where: { $0.receipts.contains { !$0.undone } }) {
         app.tasks.undo(record.id)
@@ -849,7 +877,9 @@ final class WorkspaceController: NSWindowController, NSWindowDelegate, NSMenuIte
     case "copyPath":
       let text =
         (activePane?.selectedURLs.isEmpty == false
-        ? activePane!.selectedURLs : [activePane?.currentURL].compactMap { $0 }).map(\.path).joined(
+        ? activePane!.selectedURLs : [activePane?.operationDirectoryURL].compactMap { $0 }).map(
+          \.path
+        ).joined(
           separator: "\n")
       NSPasteboard.general.clearContents()
       NSPasteboard.general.setString(text, forType: .string)
@@ -912,9 +942,9 @@ final class WorkspaceController: NSWindowController, NSWindowDelegate, NSMenuIte
     case "finder":
       let urls = activePane?.selectedURLs ?? []
       NSWorkspace.shared.activateFileViewerSelecting(
-        urls.isEmpty ? [activePane?.currentURL].compactMap { $0 } : urls)
+        urls.isEmpty ? [activePane?.operationDirectoryURL].compactMap { $0 } : urls)
     case "terminal":
-      if let url = activePane?.currentURL,
+      if let url = activePane?.operationDirectoryURL,
         let terminal = NSWorkspace.shared.urlForApplication(
           withBundleIdentifier: "com.apple.Terminal")
       {
@@ -940,6 +970,11 @@ final class WorkspaceController: NSWindowController, NSWindowDelegate, NSMenuIte
     try? app.store.save(app.state)
     saveTimer?.invalidate()
     if let focusMonitor { NSEvent.removeMonitor(focusMonitor) }
+    volumeObservers.forEach { NSWorkspace.shared.notificationCenter.removeObserver($0) }
+    volumeObservers.removeAll()
     panes.values.forEach { $0.stop() }
+  }
+  deinit {
+    volumeObservers.forEach { NSWorkspace.shared.notificationCenter.removeObserver($0) }
   }
 }

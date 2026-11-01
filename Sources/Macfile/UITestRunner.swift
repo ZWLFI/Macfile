@@ -9,6 +9,7 @@ final class UITestRunner {
   var steps: [(String, () throws -> Void)] = []
   var stepIndex = 0
   var waitCount = 0
+  var taskReliabilityCenters: [TaskCenter] = []
   init(app: AppDelegate, root: URL) {
     self.app = app
     self.root = root
@@ -103,7 +104,8 @@ final class UITestRunner {
           pane.reloadViews()
           pane.selection = [root.appendingPathComponent("资料/归档")]
           pane.reloadViews()
-          try require(!pane.galleryImageLoading && !pane.galleryPlaceholder.isHidden,
+          try require(
+            !pane.galleryImageLoading && !pane.galleryPlaceholder.isHidden,
             "快速切到文件夹未取消图片预览")
           pane.selection = [root.appendingPathComponent("资料/工作台概念.png")]
           pane.reloadViews()
@@ -759,6 +761,9 @@ final class UITestRunner {
     addMenuInteractionTests(w)
     addFileInteractionTests(w)
     addPaneInteractionTests(w)
+    addPaneReliabilityTests(w)
+    addWorkspaceReliabilityTests(w)
+    addTaskReliabilityTests(w)
     if ProcessInfo.processInfo.environment["MACFILE_TEST_DESIGN_ONLY"] == "1" { steps.removeAll() }
     appendDesignChecks(w)
     DispatchQueue.main.asyncAfter(deadline: .now() + 1) { self.advance() }
@@ -922,8 +927,9 @@ final class UITestRunner {
   func advance() {
     let busy =
       app.tasks.hasActive
+      || taskReliabilityCenters.contains { $0.hasActive }
       || app.active?.panes.values.contains(where: {
-        $0.queue.operationCount > 0 || $0.galleryImageLoading
+        (!$0.queue.isSuspended && $0.queue.operationCount > 0) || $0.galleryImageLoading
       }) == true
     if busy && waitCount < 200 {
       waitCount += 1
@@ -1003,7 +1009,8 @@ final class TestDraggingInfo: NSObject, NSDraggingInfo {
   var draggingLocation = NSPoint.zero
   var draggedImageLocation = NSPoint.zero
   var draggedImage: NSImage? { nil }
-  var draggingSource: Any? { nil }
+  var source: Any?
+  var draggingSource: Any? { source }
   var draggingSequenceNumber: Int { 1 }
   var draggingFormation: NSDraggingFormation = .default
   var animatesToDestination = false

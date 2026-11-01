@@ -532,7 +532,8 @@ final class TasksController: NSWindowController, NSTableViewDataSource, NSTableV
     detail.isVerticallyResizable = true
     detail.isHorizontallyResizable = false
     detail.textContainer?.widthTracksTextView = true
-    detail.textContainer?.containerSize = NSSize(width: 720, height: CGFloat.greatestFiniteMagnitude)
+    detail.textContainer?.containerSize = NSSize(
+      width: 720, height: CGFloat.greatestFiniteMagnitude)
     detail.font = .systemFont(ofSize: 12)
     detail.textColor = .secondaryLabelColor
     detail.drawsBackground = false
@@ -765,7 +766,8 @@ extension WorkspaceController {
     while workspace.panes.count < preset.count {
       workspace.panes.append(
         PaneState(
-          path: activePane?.currentURL.path ?? FileManager.default.homeDirectoryForCurrentUser.path)
+          path: activePane?.operationDirectoryURL.path
+            ?? FileManager.default.homeDirectoryForCurrentUser.path)
       )
     }
     let ids = workspace.panes.map(\.id)
@@ -801,7 +803,8 @@ extension WorkspaceController {
     while workspace.panes.count < old.panes.count {
       workspace.panes.append(
         PaneState(
-          path: activePane?.currentURL.path ?? FileManager.default.homeDirectoryForCurrentUser.path)
+          path: activePane?.operationDirectoryURL.path
+            ?? FileManager.default.homeDirectoryForCurrentUser.path)
       )
     }
     workspace.arrangement = old.arrangement
@@ -974,7 +977,7 @@ extension WorkspaceController {
       case "清理失效引用":
         self.app.state.basket.removeAll { !FileOperations.exists(URL(fileURLWithPath: $0)) }
       default:
-        guard let destination = self.activePane?.currentURL, !ids.isEmpty else { return }
+        guard let destination = self.activePane?.operationDirectoryURL, !ids.isEmpty else { return }
         d?.close()
         self.transfer(
           ids.map { URL(fileURLWithPath: $0) }, to: destination, move: action.hasPrefix("移动"))

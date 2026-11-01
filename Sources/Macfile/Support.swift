@@ -178,21 +178,30 @@ final class TaskCenter {
       ?? []).filter { $0.pathExtension == "receipt" }.compactMap {
         try? JSONDecoder().decode(OperationReceipt.self, from: Data(contentsOf: $0))
       }
-    for receipt in journalReceipts where receipt.undone {
+    for receipt in journalReceipts {
       for i in records.indices {
         if let j = records[i].receipts.firstIndex(where: { $0.id == receipt.id }) {
-          records[i].receipts[j].undone = true
+          records[i].receipts[j] = receipt
           if records[i].receipts.allSatisfy(\.undone) { records[i].status = .undone }
         }
       }
     }
     let recovered = journalReceipts.filter { !seen.contains($0.id) && !$0.undone }
+      .sorted { $0.date < $1.date }
     if !recovered.isEmpty {
-      var task = TaskRecord(title: "恢复的操作记录", total: recovered.count)
-      task.status = .interrupted
-      task.receipts = recovered
-      task.completed = recovered.count
-      records.insert(task, at: 0)
+      let legacyRenameGroup = UUID()
+      let groups = Dictionary(grouping: recovered) {
+        $0.renameBatchID ?? ($0.kind == .rename ? legacyRenameGroup : $0.id)
+      }
+      for receipts in groups.values {
+        var task = TaskRecord(title: "恢复的操作记录 · " + receipts[0].kind.title, total: receipts.count)
+        task.status = .interrupted
+        task.receipts = receipts
+        task.completed = receipts.count
+        task.date = receipts.last!.date
+        records.append(task)
+      }
+      records.sort { $0.date > $1.date }
     }
   }
   func changed() {
@@ -251,7 +260,11 @@ final class TaskCenter {
       } catch {
         self.update(id) {
           $0.errors.append(error.localizedDescription)
-          $0.status = .cancelled
+          if case FileOperationError.cancelled = error {
+            $0.status = .cancelled
+          } else {
+            $0.status = .failed
+          }
           $0.current = error.localizedDescription
         }
       }
@@ -318,36 +331,31 @@ final class TaskCenter {
     let receipts = task.receipts.filter { !$0.undone }
     guard !receipts.isEmpty else { return }
     perform(title: "撤销：" + task.title, total: receipts.count) { [weak self] engine, _ in
-      if receipts.allSatisfy({ $0.kind == .rename }) {
-        for r in receipts {
-          let url = URL(fileURLWithPath: r.destination)
-          guard try FileIdentity(url) == r.identity,
-            try engine.digest(url, metadata: true) == r.signature
-          else { throw FileOperationError.changedSinceOperation(r.destination) }
-        }
-        try engine.renameBatch(
-          receipts.map {
-            (
-              URL(fileURLWithPath: $0.destination),
-              URL(fileURLWithPath: $0.source).lastPathComponent
-            )
-          }, recordReceipts: false, didComplete: { _ in })
-        for receipt in receipts { try engine.markUndone(receipt) }
-        self?.update(id) { r in
-          for i in r.receipts.indices { r.receipts[i].undone = true }
-          r.status = .undone
-        }
+      let receiptIDs = Set(receipts.map(\.id))
+      let hasDependencies = receipts.contains { receipt in
+        receipt.undoPredecessors?.contains { receiptIDs.contains($0.receiptID) } == true
+      }
+      if receipts.allSatisfy({ $0.kind == .rename }) && !hasDependencies {
+        self?.mergeReceipts(try engine.undoRenames(receipts))
       } else {
         for receipt in receipts.reversed() {
-          try engine.undo(receipt)
-          self?.update(id) { r in
-            if let i = r.receipts.firstIndex(where: { $0.id == receipt.id }) {
-              r.receipts[i].undone = true
-            }
-            if r.receipts.allSatisfy(\.undone) { r.status = .undone }
+          self?.mergeReceipts(try engine.undo(receipt))
+        }
+      }
+    }
+  }
+  private func mergeReceipts(_ receipts: [OperationReceipt]) {
+    DispatchQueue.main.async { [weak self] in
+      guard let self else { return }
+      for receipt in receipts {
+        for i in self.records.indices {
+          if let j = self.records[i].receipts.firstIndex(where: { $0.id == receipt.id }) {
+            self.records[i].receipts[j] = receipt
+            if self.records[i].receipts.allSatisfy(\.undone) { self.records[i].status = .undone }
           }
         }
       }
+      self.changed()
     }
   }
 }

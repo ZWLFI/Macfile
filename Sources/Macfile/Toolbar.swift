@@ -9,6 +9,7 @@ extension WorkspaceController: NSToolbarDelegate, NSSearchFieldDelegate {
     toolbar.allowsUserCustomization = false
     toolbar.autosavesConfiguration = false
     window?.toolbar = toolbar
+    updateTaskIndicator()
   }
   func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
     [
@@ -101,6 +102,24 @@ extension WorkspaceController: NSToolbarDelegate, NSSearchFieldDelegate {
       item.menuFormRepresentation = overflow
       return item
     }
+    if key == "tasks" {
+      let item = NSToolbarItem(itemIdentifier: identifier)
+      let button = ActionButton("任务", symbol: "arrow.down.circle", help: "任务中心 ⌘J") { [weak self] in
+        self?.command("tasks")
+      }
+      button.bezelStyle = .texturedRounded
+      button.font = .systemFont(ofSize: 13)
+      button.heightAnchor.constraint(equalToConstant: 28).isActive = true
+      button.widthAnchor.constraint(greaterThanOrEqualToConstant: 70).isActive = true
+      item.view = button
+      item.label = "任务"
+      let overflow = NSMenuItem(
+        title: "任务中心", action: #selector(toolbarMenuAction(_:)), keyEquivalent: "")
+      overflow.target = self
+      overflow.representedObject = "tasks"
+      item.menuFormRepresentation = overflow
+      return item
+    }
     if key == "layouts" || key == "actions" {
       let item = NSMenuToolbarItem(itemIdentifier: identifier)
       item.label = key == "layouts" ? "分栏与布局" : "更多操作"
@@ -127,8 +146,7 @@ extension WorkspaceController: NSToolbarDelegate, NSSearchFieldDelegate {
       return item
     }
     let definitions = [
-      "sidebar": ("显示／隐藏侧栏", "sidebar.left"),
-      "tasks": ("任务中心", "arrow.down.circle"),
+      "sidebar": ("显示／隐藏侧栏", "sidebar.left")
     ]
     guard let (title, icon) = definitions[key] else { return nil }
     let item = NSToolbarItem(itemIdentifier: identifier)
@@ -141,6 +159,19 @@ extension WorkspaceController: NSToolbarDelegate, NSSearchFieldDelegate {
     item.action = #selector(toolbarAction(_:))
     toolbarCommands[identifier] = key
     return item
+  }
+  func updateTaskIndicator() {
+    let count = app.tasks.records.filter { [.running, .queued, .paused].contains($0.status) }.count
+    guard let item = window?.toolbar?.items.first(where: { $0.itemIdentifier.rawValue == "tasks" }),
+      let button = item.view as? NSButton
+    else { return }
+    let title = count == 0 ? "任务" : "任务 \(count)"
+    button.title = title
+    button.toolTip = count == 0 ? "任务中心 ⌘J" : "\(count) 个进行中或等待中的任务 · ⌘J"
+    button.setAccessibilityLabel(button.toolTip)
+    item.label = title
+    item.menuFormRepresentation?.title = count == 0 ? "任务中心" : "任务中心（\(count)）"
+    item.visibilityPriority = count == 0 ? .low : .high
   }
   @objc func toolbarAction(_ sender: NSToolbarItem) {
     command(toolbarCommands[sender.itemIdentifier] ?? "")

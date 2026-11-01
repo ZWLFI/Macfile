@@ -1,6 +1,8 @@
 import Foundation
 import MacfileCore
 
+runStateLockProbeIfRequested()
+
 let tests = CoreTests()
 let cases: [(String, () throws -> Void)] = [
   ("testCopyPreservesSourceAndVerifiesContent", tests.testCopyPreservesSourceAndVerifiesContent),
@@ -45,6 +47,20 @@ let cases: [(String, () throws -> Void)] = [
   ),
   ("testCrossVolumeMoveAndUndo", tests.testCrossVolumeMoveAndUndo),
   ("testCrossVolumeMoveThroughSymlinkAndUndo", tests.testCrossVolumeMoveThroughSymlinkAndUndo),
+  ("testCopyMoveUndoChainAfterRestart", tests.testCopyMoveUndoChainAfterRestart),
+  ("testUndoChainRefusesExternalChanges", tests.testUndoChainRefusesExternalChanges),
+  (
+    "testUndoChainDoesNotResignMetadataChangedDuringMove",
+    tests.testUndoChainDoesNotResignMetadataChangedDuringMove
+  ),
+  ("testUndoChainDirectorySymlinkAndTrash", tests.testUndoChainDirectorySymlinkAndTrash),
+  ("testUndoChainRenameCycleAndReplacement", tests.testUndoChainRenameCycleAndReplacement),
+  ("testCrossVolumeUndoChain", tests.testCrossVolumeUndoChain),
+  (
+    "testStateDirectoryLockExcludesOtherProcesses",
+    tests.testStateDirectoryLockExcludesOtherProcesses
+  ),
+  ("testStateDirectoryLockFailsSafely", tests.testStateDirectoryLockFailsSafely),
 ]
 print("Layout presets: \(LayoutPreset.all.count)")
 var skipped = 0

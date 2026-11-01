@@ -295,6 +295,7 @@ extension PaneController: NSTableViewDataSource, NSTableViewDelegate {
     return row([icon, text], spacing: 7)
   }
   func tableViewSelectionDidChange(_ notification: Notification) {
+    guard !isReloadingViews else { return }
     selection = Set(table.selectedRowIndexes.compactMap { $0 < items.count ? items[$0].url : nil })
     selectionDidChange()
   }
@@ -358,6 +359,7 @@ extension PaneController: NSCollectionViewDataSource, NSCollectionViewDelegate,
     _ collectionView: NSCollectionView, didDeselectItemsAt indexPaths: Set<IndexPath>
   ) { collectionSelectionChanged() }
   func collectionSelectionChanged() {
+    guard !isReloadingViews else { return }
     selection = Set(
       collection.selectionIndexPaths.compactMap { $0.item < items.count ? items[$0.item].url : nil }
     )

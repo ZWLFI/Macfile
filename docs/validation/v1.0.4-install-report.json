@@ -1,0 +1,9 @@
+{
+  "version": "1.0.4",
+  "build": "5",
+  "binary_sha256": "f5edf909d263bcae259081cf0a925143e5d216e506c79727a808aee1533df1a9",
+  "installed_matches_built": true,
+  "state_unchanged": true,
+  "tasks_unchanged": true,
+  "codesign_verify": "PASS"
+}

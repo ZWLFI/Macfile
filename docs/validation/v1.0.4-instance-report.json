@@ -1,0 +1,14 @@
+[
+  {
+    "test": "independent-state-directories-run-concurrently",
+    "status": "PASS"
+  },
+  {
+    "test": "duplicate-app-exits-before-state-or-task-load",
+    "status": "PASS"
+  },
+  {
+    "test": "foreign-lock-rejects-before-corrupt-state-read",
+    "status": "PASS"
+  }
+]

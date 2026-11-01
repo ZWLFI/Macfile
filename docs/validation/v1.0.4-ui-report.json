@@ -1,0 +1,370 @@
+[
+  {
+    "status" : "PASS",
+    "test" : "initial-directory-and-layout"
+  },
+  {
+    "status" : "PASS",
+    "test" : "switch-list"
+  },
+  {
+    "status" : "PASS",
+    "test" : "switch-icons"
+  },
+  {
+    "status" : "PASS",
+    "test" : "switch-thumbnails"
+  },
+  {
+    "status" : "PASS",
+    "test" : "switch-columns"
+  },
+  {
+    "status" : "PASS",
+    "test" : "switch-gallery"
+  },
+  {
+    "status" : "PASS",
+    "test" : "gallery-default-selection-and-image-request"
+  },
+  {
+    "status" : "PASS",
+    "test" : "gallery-image-preview-and-folder-placeholder"
+  },
+  {
+    "status" : "PASS",
+    "test" : "shared-toolbar-search"
+  },
+  {
+    "status" : "PASS",
+    "test" : "shared-toolbar-routing"
+  },
+  {
+    "status" : "PASS",
+    "test" : "path-edit-and-cancel"
+  },
+  {
+    "status" : "PASS",
+    "test" : "tabs-independent"
+  },
+  {
+    "status" : "PASS",
+    "test" : "navigation-loading-clears-old-files"
+  },
+  {
+    "status" : "PASS",
+    "test" : "navigation-latest-result-and-refresh-selection"
+  },
+  {
+    "status" : "PASS",
+    "test" : "refresh-preserves-selection-and-error-request"
+  },
+  {
+    "status" : "PASS",
+    "test" : "unavailable-location-feedback"
+  },
+  {
+    "status" : "PASS",
+    "test" : "tab-navigation-and-search-context"
+  },
+  {
+    "status" : "PASS",
+    "test" : "reused-list-cells-and-close-tab-context"
+  },
+  {
+    "status" : "PASS",
+    "test" : "create-overflowing-tabs"
+  },
+  {
+    "status" : "PASS",
+    "test" : "closable-tabs-and-selected-tab-visibility"
+  },
+  {
+    "status" : "PASS",
+    "test" : "context-menu-matches-selection"
+  },
+  {
+    "status" : "PASS",
+    "test" : "empty-column-pane-activation"
+  },
+  {
+    "status" : "PASS",
+    "test" : "search-filter"
+  },
+  {
+    "status" : "PASS",
+    "test" : "search-result"
+  },
+  {
+    "status" : "PASS",
+    "test" : "recursive-search"
+  },
+  {
+    "status" : "PASS",
+    "test" : "recursive-result"
+  },
+  {
+    "status" : "PASS",
+    "test" : "split-and-layout"
+  },
+  {
+    "status" : "PASS",
+    "test" : "free-placement-and-undo"
+  },
+  {
+    "status" : "PASS",
+    "test" : "cross-pane-rearrange"
+  },
+  {
+    "status" : "PASS",
+    "test" : "layout-dialog"
+  },
+  {
+    "status" : "PASS",
+    "test" : "thirty-two-panes"
+  },
+  {
+    "status" : "PASS",
+    "test" : "restore-and-bookmarks"
+  },
+  {
+    "status" : "PASS",
+    "test" : "real-copy-task"
+  },
+  {
+    "status" : "PASS",
+    "test" : "copy-verification"
+  },
+  {
+    "status" : "PASS",
+    "test" : "rename-dialog"
+  },
+  {
+    "status" : "PASS",
+    "test" : "manager-selection-and-empty-results"
+  },
+  {
+    "status" : "PASS",
+    "test" : "final-workbench"
+  },
+  {
+    "status" : "PASS",
+    "test" : "final-capture"
+  },
+  {
+    "status" : "PASS",
+    "test" : "thumbnail-content-bounds"
+  },
+  {
+    "status" : "PASS",
+    "test" : "new-window-restoration-size"
+  },
+  {
+    "status" : "PASS",
+    "test" : "drag-pasteboard-and-modifiers"
+  },
+  {
+    "status" : "PASS",
+    "test" : "drag-copy-result"
+  },
+  {
+    "status" : "PASS",
+    "test" : "narrow-window"
+  },
+  {
+    "status" : "PASS",
+    "test" : "dark-appearance"
+  },
+  {
+    "status" : "PASS",
+    "test" : "bookmark-dialog-single-and-multiple-selection"
+  },
+  {
+    "status" : "PASS",
+    "test" : "bookmark-edit-follows-stable-id"
+  },
+  {
+    "status" : "PASS",
+    "test" : "rename-invalid-preview-clears-and-recovers"
+  },
+  {
+    "status" : "PASS",
+    "test" : "utility-menu-routing"
+  },
+  {
+    "status" : "PASS",
+    "test" : "shared-command-menu-state"
+  },
+  {
+    "status" : "PASS",
+    "test" : "sheet-blocks-background-file-commands"
+  },
+  {
+    "status" : "PASS",
+    "test" : "icon-filenames-appearance-and-double-click"
+  },
+  {
+    "status" : "PASS",
+    "test" : "interaction-search-fixtures"
+  },
+  {
+    "status" : "PASS",
+    "test" : "interaction-focus-in-all-views"
+  },
+  {
+    "status" : "PASS",
+    "test" : "interaction-search-scope-and-keyboard"
+  },
+  {
+    "status" : "PASS",
+    "test" : "interaction-search-clear-and-gallery-error"
+  },
+  {
+    "status" : "PASS",
+    "test" : "interaction-error-actions-and-retry"
+  },
+  {
+    "status" : "PASS",
+    "test" : "interaction-recovered-empty-directory"
+  },
+  {
+    "status" : "PASS",
+    "test" : "reliability-column-fixtures"
+  },
+  {
+    "status" : "PASS",
+    "test" : "reliability-column-first-level"
+  },
+  {
+    "status" : "PASS",
+    "test" : "reliability-column-second-level"
+  },
+  {
+    "status" : "PASS",
+    "test" : "reliability-column-select-all-excludes-root"
+  },
+  {
+    "status" : "PASS",
+    "test" : "reliability-column-restoration-keeps-operation-target"
+  },
+  {
+    "status" : "PASS",
+    "test" : "reliability-column-refresh-restores-path-and-selection"
+  },
+  {
+    "status" : "PASS",
+    "test" : "reliability-column-refresh-drops-only-missing-selection"
+  },
+  {
+    "status" : "PASS",
+    "test" : "reliability-column-paste-writes-only-visible-directory"
+  },
+  {
+    "status" : "PASS",
+    "test" : "reliability-quicklook-follows-selection"
+  },
+  {
+    "status" : "PASS",
+    "test" : "reliability-quicklook-refresh-and-empty-selection"
+  },
+  {
+    "status" : "PASS",
+    "test" : "reliability-quicklook-closes-after-deselect"
+  },
+  {
+    "status" : "PASS",
+    "test" : "layout-undo-keeps-live-browsing"
+  },
+  {
+    "status" : "PASS",
+    "test" : "pane-drag-validates-window-and-lock"
+  },
+  {
+    "status" : "PASS",
+    "test" : "last-tab-closes-only-its-main-window"
+  },
+  {
+    "status" : "PASS",
+    "test" : "volume-notifications-refresh-sidebar"
+  },
+  {
+    "status" : "PASS",
+    "test" : "task-feedback-shows-running-before-queued"
+  },
+  {
+    "status" : "PASS",
+    "test" : "task-initialization-failure-start"
+  },
+  {
+    "status" : "PASS",
+    "test" : "task-initialization-failure-is-not-cancellation"
+  },
+  {
+    "status" : "PASS",
+    "test" : "task-explicit-cancellation-start"
+  },
+  {
+    "status" : "PASS",
+    "test" : "task-explicit-cancellation-remains-cancelled"
+  },
+  {
+    "status" : "PASS",
+    "test" : "task-undo-chain-start"
+  },
+  {
+    "status" : "PASS",
+    "test" : "task-undo-chain-refreshes-history-and-journal"
+  },
+  {
+    "status" : "PASS",
+    "test" : "task-journal-only-move-and-rename-start"
+  },
+  {
+    "status" : "PASS",
+    "test" : "task-journal-only-undo-previous-operation"
+  },
+  {
+    "status" : "PASS",
+    "test" : "task-journal-only-recovery-undo-order"
+  },
+  {
+    "status" : "PASS",
+    "test" : "task-journal-rename-cycle-start"
+  },
+  {
+    "status" : "PASS",
+    "test" : "task-journal-rename-cycle-restored"
+  },
+  {
+    "status" : "PASS",
+    "test" : "task-legacy-journal-rename-cycle-start"
+  },
+  {
+    "status" : "PASS",
+    "test" : "task-legacy-journal-rename-cycle-restored"
+  },
+  {
+    "status" : "PASS",
+    "test" : "design-fixtures"
+  },
+  {
+    "status" : "PASS",
+    "test" : "design-dual-list"
+  },
+  {
+    "status" : "PASS",
+    "test" : "design-four-pane"
+  },
+  {
+    "status" : "PASS",
+    "test" : "design-tabs"
+  },
+  {
+    "status" : "PASS",
+    "test" : "design-narrow"
+  },
+  {
+    "status" : "PASS",
+    "test" : "design-dark"
+  }
+]

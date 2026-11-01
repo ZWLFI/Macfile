@@ -56,6 +56,15 @@ public struct OperationReceipt: Codable, Identifiable {
   public var identity: FileIdentity
   public var undone = false
   public var date = Date()
+  public var undoPredecessors: [UndoPredecessor]?
+  public var renameBatchID: UUID?
+}
+public struct UndoPredecessor: Codable {
+  public var receiptID: UUID
+  public var path: String
+  public var identity: FileIdentity
+  public var signature: String
+  public var restorationSignature: String
 }
 public enum TaskStatus: String, Codable {
   case queued, running, paused, completed, partial, failed, cancelled, interrupted, undone
@@ -182,6 +191,146 @@ public final class FileOperations {
     try walk(root, relative: "")
     return hash.finalize().map { String(format: "%02x", $0) }.joined()
   }
+  // ctime changes during our own renames. All other checked metadata must survive restoration.
+  private func restorationSignature(_ root: URL) throws -> String {
+    var hash = SHA256()
+    func add(_ value: String) { hash.update(data: Data((value + "\0").utf8)) }
+    add(try digest(root))
+    func walk(_ url: URL, relative: String) throws {
+      try checkpoint?()
+      var value = stat()
+      guard lstat(url.path, &value) == 0 else { throw POSIXError(.EIO) }
+      add(relative)
+      add("\(value.st_mode):\(value.st_uid):\(value.st_gid):\(value.st_flags)")
+      add("\(value.st_mtimespec.tv_sec):\(value.st_mtimespec.tv_nsec)")
+      add("\(value.st_birthtimespec.tv_sec):\(value.st_birthtimespec.tv_nsec)")
+      let size = listxattr(url.path, nil, 0, XATTR_NOFOLLOW)
+      guard size >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+      var names = [CChar](repeating: 0, count: max(1, size))
+      let count = listxattr(url.path, &names, size, XATTR_NOFOLLOW)
+      guard count >= 0 else { throw POSIXError(.EIO) }
+      let bytes = names.prefix(count).map { UInt8(bitPattern: $0) }
+      for name in bytes.split(separator: 0).map({ String(decoding: $0, as: UTF8.self) }).sorted() {
+        let length = getxattr(url.path, name, nil, 0, 0, XATTR_NOFOLLOW)
+        // shortcut: oversized resource forks keep earlier receipts invalid until metadata can be streamed.
+        guard length >= 0, length <= 1_048_576 else {
+          throw FileOperationError.unsupported("扩展属性过大或不可读取。")
+        }
+        var data = Data(count: length)
+        let read = data.withUnsafeMutableBytes {
+          getxattr(url.path, name, $0.baseAddress, length, 0, XATTR_NOFOLLOW)
+        }
+        guard read == length else { throw POSIXError(.EIO) }
+        add(name)
+        add(String(length))
+        hash.update(data: data)
+      }
+      if let acl = acl_get_link_np(url.path, ACL_TYPE_EXTENDED) {
+        defer { acl_free(UnsafeMutableRawPointer(acl)) }
+        let aclSize = acl_size(acl)
+        guard aclSize >= 0 else { throw POSIXError(.EIO) }
+        var aclData = Data(count: aclSize)
+        let aclCount = aclData.withUnsafeMutableBytes { acl_copy_ext($0.baseAddress, acl, aclSize) }
+        guard aclCount >= 0 else { throw POSIXError(.EIO) }
+        add(String(aclCount))
+        hash.update(data: aclData.prefix(aclCount))
+      } else if errno == ENOENT {
+        add("no-acl")
+      } else {
+        throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+      }
+      if value.st_mode & S_IFMT == S_IFDIR {
+        for child in try fm.contentsOfDirectory(at: url, includingPropertiesForKeys: nil).sorted(
+          by: { $0.lastPathComponent < $1.lastPathComponent })
+        {
+          try walk(child, relative: relative + "/" + child.lastPathComponent)
+        }
+      }
+    }
+    try walk(root, relative: "")
+    return hash.finalize().map { String(format: "%02x", $0) }.joined()
+  }
+  public func storedReceipt(_ id: UUID) throws -> OperationReceipt? {
+    let url = journalDirectory.appendingPathComponent(id.uuidString + ".receipt")
+    guard Self.exists(url) else { return nil }
+    return try JSONDecoder().decode(OperationReceipt.self, from: Data(contentsOf: url))
+  }
+  private func undoPredecessors(at url: URL) throws -> [UndoPredecessor] {
+    let identity = try FileIdentity(url)
+    let candidates = try fm.contentsOfDirectory(
+      at: journalDirectory, includingPropertiesForKeys: nil
+    )
+    .filter { $0.pathExtension == "receipt" }.compactMap {
+      try? JSONDecoder().decode(OperationReceipt.self, from: Data(contentsOf: $0))
+    }.filter {
+      !$0.undone && $0.identity == identity
+        && URL(fileURLWithPath: $0.destination).standardizedFileURL == url.standardizedFileURL
+    }
+    guard !candidates.isEmpty else { return [] }
+    let signature = try digest(url, metadata: true)
+    let matching = candidates.filter { $0.signature == signature }
+    guard !matching.isEmpty, let restoration = try? restorationSignature(url),
+      try FileIdentity(url) == identity, try digest(url, metadata: true) == signature
+    else { return [] }
+    return matching.map {
+      UndoPredecessor(
+        receiptID: $0.id, path: url.path, identity: identity,
+        signature: signature, restorationSignature: restoration)
+    }
+  }
+  private func completeUndo(_ receipt: OperationReceipt) throws -> [OperationReceipt] {
+    var updated: [OperationReceipt] = []
+    for predecessor in receipt.undoPredecessors ?? [] {
+      guard var earlier = try storedReceipt(predecessor.receiptID), !earlier.undone,
+        earlier.identity == predecessor.identity, earlier.signature == predecessor.signature,
+        earlier.destination == predecessor.path
+      else { continue }
+      let restored = URL(fileURLWithPath: predecessor.path)
+      let identity = try FileIdentity(restored)
+      let signature = try digest(restored, metadata: true)
+      guard let stable = try? restorationSignature(restored),
+        stable == predecessor.restorationSignature,
+        try FileIdentity(restored) == identity, try digest(restored, metadata: true) == signature
+      else { continue }
+      earlier.identity = identity
+      earlier.signature = signature
+      try saveReceipt(earlier)
+      updated.append(earlier)
+    }
+    var undone = receipt
+    undone.undone = true
+    try saveReceipt(undone)
+    updated.append(undone)
+    return updated
+  }
+  private func preserveCreationTimes(from source: URL, to target: URL) throws {
+    var original = stat()
+    var copied = stat()
+    guard lstat(source.path, &original) == 0, lstat(target.path, &copied) == 0 else {
+      throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+    }
+    if original.st_birthtimespec.tv_sec != copied.st_birthtimespec.tv_sec
+      || original.st_birthtimespec.tv_nsec != copied.st_birthtimespec.tv_nsec
+    {
+      var attributes = attrlist()
+      attributes.bitmapcount = UInt16(ATTR_BIT_MAP_COUNT)
+      attributes.commonattr = UInt32(ATTR_CMN_CRTIME)
+      var creationTime = original.st_birthtimespec
+      guard
+        setattrlist(
+          target.path, &attributes, &creationTime, MemoryLayout<timespec>.size,
+          UInt32(FSOPT_NOFOLLOW)) == 0
+      else {
+        throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+      }
+    }
+    if original.st_mode & S_IFMT == S_IFDIR {
+      for child in try fm.contentsOfDirectory(at: source, includingPropertiesForKeys: nil) {
+        try preserveCreationTimes(
+          from: child, to: target.appendingPathComponent(child.lastPathComponent))
+      }
+    }
+  }
   public func transfer(
     _ source: URL, to requested: URL, kind: OperationKind, conflict: ConflictPolicy,
     recordReceipt: Bool = true
@@ -216,6 +365,11 @@ public final class FileOperations {
     do {
       progress?("校验 \(source.lastPathComponent)")
       let before = try digest(source)
+      var predecessors: [UndoPredecessor] = []
+      if recordReceipt {
+        if kind != .copy { predecessors += try undoPredecessors(at: source) }
+        if backup != nil { predecessors += try undoPredecessors(at: target) }
+      }
       try checkpoint?()
       let sameVolume =
         sourceID.device
@@ -230,6 +384,7 @@ public final class FileOperations {
         try save(record, to: journal)
         progress?("复制 \(source.lastPathComponent)")
         try fm.copyItem(at: source, to: staging)
+        if kind != .copy { try preserveCreationTimes(from: source, to: staging) }
       }
       progress?("验证 \(source.lastPathComponent)")
       guard try digest(staging) == before else { throw FileOperationError.sourceChanged }
@@ -260,7 +415,8 @@ public final class FileOperations {
       // Record a receipt before removing the pending intent so crashes remain inspectable.
       let receipt = OperationReceipt(
         kind: kind, source: source.path, destination: target.path, backup: backup?.path,
-        signature: try digest(target, metadata: true), identity: try FileIdentity(target))
+        signature: try digest(target, metadata: true), identity: try FileIdentity(target),
+        undoPredecessors: predecessors.isEmpty ? nil : predecessors)
       if recordReceipt { try saveReceipt(receipt) }
       try fm.removeItem(at: journal)
       return receipt
@@ -292,6 +448,7 @@ public final class FileOperations {
   public func trash(_ source: URL) throws -> OperationReceipt {
     try checkpoint?()
     _ = try digest(source)
+    let predecessors = try undoPredecessors(at: source)
     let journal = journalDirectory.appendingPathComponent(UUID().uuidString + ".pending")
     try save(
       PendingMutation(
@@ -300,7 +457,8 @@ public final class FileOperations {
     let target = try moveToTrash(source)
     let receipt = OperationReceipt(
       kind: .trash, source: source.path, destination: target.path,
-      signature: try digest(target, metadata: true), identity: try FileIdentity(target))
+      signature: try digest(target, metadata: true), identity: try FileIdentity(target),
+      undoPredecessors: predecessors.isEmpty ? nil : predecessors)
     try saveReceipt(receipt)
     try fm.removeItem(at: journal)
     return receipt
@@ -324,7 +482,8 @@ public final class FileOperations {
     try saveReceipt(receipt)
     return receipt
   }
-  public func undo(_ receipt: OperationReceipt) throws {
+  @discardableResult public func undo(_ original: OperationReceipt) throws -> [OperationReceipt] {
+    let receipt = try storedReceipt(original.id) ?? original
     let target = URL(fileURLWithPath: receipt.destination)
     let source = URL(fileURLWithPath: receipt.source)
     guard !receipt.undone, try FileIdentity(target) == receipt.identity,
@@ -345,12 +504,30 @@ public final class FileOperations {
       _ = try transfer(target, to: source, kind: .move, conflict: .ask, recordReceipt: false)
     }
     if let backup = receipt.backup { try fm.moveItem(at: URL(fileURLWithPath: backup), to: target) }
-    try markUndone(receipt)
+    let updated = try completeUndo(receipt)
     try fm.removeItem(at: journal)
+    return updated
+  }
+  @discardableResult public func undoRenames(_ originals: [OperationReceipt]) throws
+    -> [OperationReceipt]
+  {
+    let receipts = try originals.map { try storedReceipt($0.id) ?? $0 }
+    for receipt in receipts {
+      let url = URL(fileURLWithPath: receipt.destination)
+      guard receipt.kind == .rename, !receipt.undone, try FileIdentity(url) == receipt.identity,
+        try digest(url, metadata: true) == receipt.signature
+      else { throw FileOperationError.changedSinceOperation(receipt.destination) }
+    }
+    try renameBatch(
+      receipts.map {
+        (URL(fileURLWithPath: $0.destination), URL(fileURLWithPath: $0.source).lastPathComponent)
+      }, recordReceipts: false, didComplete: { _ in })
+    return try receipts.flatMap { try completeUndo($0) }
   }
   public func renameBatch(
     _ pairs: [(URL, String)], recordReceipts: Bool = true, didComplete: (OperationReceipt) -> Void
   ) throws {
+    let batchID = UUID()
     let sources = Set(pairs.map { $0.0.standardizedFileURL.path })
     guard sources.count == pairs.count else { throw FileOperationError.unsupported("重命名列表包含重复项目。") }
     var targets = Set<String>()
@@ -379,6 +556,10 @@ public final class FileOperations {
           ".macfile-" + UUID().uuidString + ".rename"),
         $0.0.deletingLastPathComponent().appendingPathComponent($0.1)
       )
+    }
+    var predecessors: [String: [UndoPredecessor]] = [:]
+    if recordReceipts {
+      for (source, _, _) in moves { predecessors[source.path] = try undoPredecessors(at: source) }
     }
     try JSONEncoder().encode(moves.map { [$0.0.path, $0.1.path, $0.2.path] }).write(
       to: journal, options: .atomic)
@@ -413,7 +594,8 @@ public final class FileOperations {
     for (source, _, target) in staged {
       let receipt = OperationReceipt(
         kind: .rename, source: source.path, destination: target.path,
-        signature: try digest(target, metadata: true), identity: try FileIdentity(target))
+        signature: try digest(target, metadata: true), identity: try FileIdentity(target),
+        undoPredecessors: predecessors[source.path], renameBatchID: batchID)
       if recordReceipts { try saveReceipt(receipt) }
       didComplete(receipt)
     }

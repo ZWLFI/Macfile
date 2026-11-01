@@ -40,6 +40,15 @@ final class PaneController: NSViewController, NSSearchFieldDelegate, QLPreviewPa
   var state: PaneState
   var id: UUID { state.id }
   var currentURL: URL { URL(fileURLWithPath: state.current.path) }
+  var operationDirectoryURL: URL {
+    guard state.current.mode == .columns else { return currentURL }
+    if let navigation = browserNavigationToRestore {
+      return navigation.directories.last ?? currentURL
+    }
+    guard browser.lastColumn > 0 else { return currentURL }
+    return (browser.parentForItems(inColumn: browser.lastColumn) as? BrowserNode)?.item.url
+      ?? currentURL
+  }
   var items: [FileItem] = []
   var allItems: [FileItem] = []
   var selection = Set<URL>()
@@ -115,6 +124,16 @@ final class PaneController: NSViewController, NSSearchFieldDelegate, QLPreviewPa
   private var skippedLocations = 0
   var browserCache: [String: [BrowserNode]] = [:]
   var browserLoading = Set<String>()
+  private struct BrowserNavigation {
+    var directories: [URL]
+    var selectedColumn: Int
+    var selection: Set<URL>
+  }
+  private var browserNavigationToRestore: BrowserNavigation?
+  private var browserRootPath: String?
+  private var browserTabID: UUID?
+  private var restoringBrowser = false
+  private(set) var isReloadingViews = false
   var quickLookURLs: [URL] = []
   init(owner: WorkspaceController, state: PaneState) {
     self.owner = owner
@@ -333,7 +352,8 @@ final class PaneController: NSViewController, NSSearchFieldDelegate, QLPreviewPa
   }
   func focusFiles() {
     guard view.window?.attachedSheet == nil else { return }
-    let responder: NSView = state.current.mode == .list
+    let responder: NSView =
+      state.current.mode == .list
       ? table : state.current.mode == .columns ? browser : collection
     view.window?.makeFirstResponder(responder)
   }
@@ -417,8 +437,10 @@ final class PaneController: NSViewController, NSSearchFieldDelegate, QLPreviewPa
     browser.pane = self
     browser.delegate = self
     browser.minColumnWidth = 180
-    browser.allowsMultipleSelection = false
-    browser.takesTitleFromPreviousColumn = true
+    browser.allowsMultipleSelection = true
+    browser.allowsBranchSelection = true
+    browser.allowsEmptySelection = true
+    browser.isTitled = false
     browser.registerForDraggedTypes(FileDrop.types)
     browser.setDraggingSourceOperationMask([.copy, .move], forLocal: true)
     browser.setDraggingSourceOperationMask(.copy, forLocal: false)
@@ -447,9 +469,14 @@ final class PaneController: NSViewController, NSSearchFieldDelegate, QLPreviewPa
     emptyPrimary.actionBlock = { [weak self] in
       guard let self else { return }
       self.owner?.activate(self.id)
-      if self.readError != nil { self.refresh(); self.focusFiles() }
-      else if !self.searchField.stringValue.isEmpty { self.clearSearch() }
-      else { self.owner?.command("newFolder") }
+      if self.readError != nil {
+        self.refresh()
+        self.focusFiles()
+      } else if !self.searchField.stringValue.isEmpty {
+        self.clearSearch()
+      } else {
+        self.owner?.command("newFolder")
+      }
     }
     emptySecondary.actionBlock = { [weak self] in
       guard let self else { return }
@@ -588,7 +615,7 @@ final class PaneController: NSViewController, NSSearchFieldDelegate, QLPreviewPa
     grip.isHidden = owner?.workspace.arrangement != .free
   }
   func addTab(path: String? = nil) {
-    state.tabs.append(FileTab(path: path ?? currentURL.path, mode: state.current.mode))
+    state.tabs.append(FileTab(path: path ?? operationDirectoryURL.path, mode: state.current.mode))
     selectTab(state.tabs.count - 1)
   }
   func closeTab(_ tabID: UUID? = nil) {
@@ -701,6 +728,10 @@ final class PaneController: NSViewController, NSSearchFieldDelegate, QLPreviewPa
   }
   @objc func modeChanged() { setMode(ViewMode.allCases[modeButton.indexOfSelectedItem]) }
   func setMode(_ mode: ViewMode) {
+    if state.current.mode != mode {
+      browserNavigationToRestore = nil
+      browserRootPath = nil
+    }
     updateTab { $0.mode = mode }
     modeButton.selectItem(at: ViewMode.allCases.firstIndex(of: mode)!)
     owner?.activate(id)
@@ -724,7 +755,6 @@ final class PaneController: NSViewController, NSSearchFieldDelegate, QLPreviewPa
     case .columns:
       content.addSubview(browser)
       pin(browser, to: content)
-      browser.loadColumnZero()
     case .gallery:
       fileScroll.documentView = collection
       let split = NSSplitView()
@@ -782,6 +812,7 @@ final class PaneController: NSViewController, NSSearchFieldDelegate, QLPreviewPa
     watch = nil
     browserLoading.removeAll()
     if contentsURL != url || contentsTabID != state.current.id {
+      browserNavigationToRestore = nil
       browserCache.removeAll()
       contentsURL = url
       contentsTabID = state.current.id
@@ -838,6 +869,9 @@ final class PaneController: NSViewController, NSSearchFieldDelegate, QLPreviewPa
           self.isLoading = false
           self.skippedLocations = skippedCount
           self.allItems = result
+          if self.state.current.mode == .columns {
+            self.browserNavigationToRestore = self.captureBrowserNavigation()
+          }
           self.browserCache.removeAll()
           self.browserLoading.removeAll()
           self.filterItems()
@@ -852,6 +886,8 @@ final class PaneController: NSViewController, NSSearchFieldDelegate, QLPreviewPa
           self.allItems = []
           self.items = []
           self.selection.removeAll()
+          self.browserNavigationToRestore = nil
+          self.browserRootPath = nil
           self.browserCache.removeAll()
           self.browserLoading.removeAll()
           self.reloadViews()
@@ -866,7 +902,9 @@ final class PaneController: NSViewController, NSSearchFieldDelegate, QLPreviewPa
     queryLabel.toolTip = recursive ? "包含子目录" : "当前目录"
     items =
       query.isEmpty ? allItems : allItems.filter { $0.name.localizedCaseInsensitiveContains(query) }
-    selection = selection.intersection(Set(items.map(\.url)))
+    if state.current.mode != .columns {
+      selection = selection.intersection(Set(items.map(\.url)))
+    }
     sortItems()
   }
   func sortItems() {
@@ -874,14 +912,18 @@ final class PaneController: NSViewController, NSSearchFieldDelegate, QLPreviewPa
     reloadViews()
   }
   func reloadViews() {
+    let navigation = state.current.mode == .columns ? captureBrowserNavigation() : nil
+    if state.current.mode != .columns { selection.formIntersection(Set(items.map(\.url))) }
     if state.current.mode == .gallery, selection.isEmpty,
       let first = items.first(where: {
-        !$0.isDirectory && UTType(filenameExtension: $0.url.pathExtension)?.conforms(to: .image) == true
+        !$0.isDirectory
+          && UTType(filenameExtension: $0.url.pathExtension)?.conforms(to: .image) == true
       }) ?? items.first(where: { !$0.isDirectory }) ?? items.first
     {
       selection = [first.url]
     }
     let savedSelection = selection
+    isReloadingViews = true
     table.reloadData()
     table.selectRowIndexes(
       IndexSet(items.indices.filter { savedSelection.contains(items[$0].url) }),
@@ -892,9 +934,77 @@ final class PaneController: NSViewController, NSSearchFieldDelegate, QLPreviewPa
         IndexPath(item: $0, section: 0)
       })
     browserCache[currentURL.path] = items.map(BrowserNode.init)
-    if state.current.mode == .columns { browser.loadColumnZero() }
     selection = savedSelection
+    if let navigation {
+      browserNavigationToRestore = navigation
+      browserRootPath = currentURL.path
+      browserTabID = state.current.id
+      browser.loadColumnZero()
+      restoreBrowserNavigation()
+    }
+    isReloadingViews = false
     selectionDidChange()
+  }
+  private func captureBrowserNavigation() -> BrowserNavigation {
+    if let browserNavigationToRestore { return browserNavigationToRestore }
+    guard browserRootPath == currentURL.path, browserTabID == state.current.id else {
+      return BrowserNavigation(directories: [], selectedColumn: 0, selection: selection)
+    }
+    let directories =
+      browser.lastColumn > 0
+      ? (1...browser.lastColumn).compactMap {
+        (browser.parentForItems(inColumn: $0) as? BrowserNode)?.item.url
+      } : []
+    return BrowserNavigation(
+      directories: directories, selectedColumn: browser.selectedColumn, selection: selection)
+  }
+  private func restoreBrowserNavigation() {
+    guard let navigation = browserNavigationToRestore, state.current.mode == .columns else {
+      return
+    }
+    restoringBrowser = true
+    defer { restoringBrowser = false }
+    var parent = currentURL
+    for (column, directory) in navigation.directories.enumerated() {
+      guard let children = browserCache[parent.path] else { return }
+      guard let row = children.firstIndex(where: { $0.item.url == directory && $0.item.isFolder })
+      else {
+        browserNavigationToRestore = nil
+        updateBrowserSelection()
+        return
+      }
+      browser.selectRow(row, inColumn: column)
+      parent = directory
+      if browserCache[parent.path] == nil {
+        updateBrowserSelection()
+        return  // The asynchronous child read resumes restoration after populating its cache.
+      }
+    }
+    let column = navigation.selectedColumn
+    if column >= 0, column <= browser.lastColumn {
+      let parent =
+        (browser.parentForItems(inColumn: column) as? BrowserNode)?.item.url ?? currentURL
+      let children = browserCache[parent.path] ?? []
+      let indexes = IndexSet(
+        children.indices.filter { navigation.selection.contains(children[$0].item.url) })
+      browser.selectRowIndexes(indexes, inColumn: column)
+    }
+    browserNavigationToRestore = nil
+    updateBrowserSelection()
+  }
+  private func updateBrowserSelection() {
+    guard browserNavigationToRestore == nil else {
+      selection.removeAll()
+      return
+    }
+    let column = browser.selectedColumn
+    selection =
+      column < 0
+      ? []
+      : Set(
+        (browser.selectedRowIndexes(inColumn: column) ?? []).compactMap {
+          (browser.item(atRow: $0, inColumn: column) as? BrowserNode)?.item.url
+        })
   }
   private func updateStatus() {
     let query = searchField.stringValue
@@ -902,8 +1012,9 @@ final class PaneController: NSViewController, NSSearchFieldDelegate, QLPreviewPa
     searchScope.selectedSegment = recursive ? 1 : 0
     queryLabel.stringValue = query.isEmpty ? "" : "筛选：" + query
     queryLabel.toolTip = recursive ? "包含子目录" : "当前目录"
-    loadingIndicator.isHidden = !isLoading
-    if isLoading {
+    let restoringColumns = state.current.mode == .columns && browserNavigationToRestore != nil
+    loadingIndicator.isHidden = !(isLoading || restoringColumns)
+    if isLoading || restoringColumns {
       loadingIndicator.startAnimation(nil)
     } else {
       loadingIndicator.stopAnimation(nil)
@@ -918,6 +1029,10 @@ final class PaneController: NSViewController, NSSearchFieldDelegate, QLPreviewPa
       countLabel.stringValue = message
       emptyLabel.stringValue = message
       emptyIcon.image = symbol("folder")
+      return
+    }
+    if restoringColumns {
+      countLabel.stringValue = "正在恢复分栏…"
       return
     }
     if let readError {
@@ -938,11 +1053,19 @@ final class PaneController: NSViewController, NSSearchFieldDelegate, QLPreviewPa
       emptyDetail.stringValue = "试试其他关键词，或清除搜索。"
       emptyDetail.isHidden = false
     }
-    let size = items.filter { selection.contains($0.url) && !$0.isFolder }.reduce(Int64(0)) {
+    var displayedItems = items
+    if state.current.mode == .columns, browser.lastColumn >= 0 {
+      let column = max(0, browser.selectedColumn >= 0 ? browser.selectedColumn : browser.lastColumn)
+      let parent =
+        (browser.parentForItems(inColumn: column) as? BrowserNode)?.item.url ?? currentURL
+      displayedItems = browserCache[parent.path]?.map(\.item) ?? []
+    }
+    let size = displayedItems.filter { selection.contains($0.url) && !$0.isFolder }.reduce(Int64(0))
+    {
       $0 + $1.size
     }
     countLabel.stringValue =
-      "\(items.count) 项"
+      "\(displayedItems.count) 项"
       + (selection.isEmpty
         ? "" : " · 已选 \(selection.count) 项 · \(bytesFormatter.string(fromByteCount: size))")
       + (skippedLocations > 0 ? " · \(skippedLocations) 个位置不可访问" : "")
@@ -963,7 +1086,9 @@ final class PaneController: NSViewController, NSSearchFieldDelegate, QLPreviewPa
     return "请检查磁盘或网络连接后重试，也可以返回上一级。"
   }
   func selectionDidChange() {
+    guard !isReloadingViews else { return }
     updateStatus()
+    syncQuickLookSelection()
     if state.current.mode == .gallery {
       let selected = selectedURLs.first.flatMap { url in items.first { $0.url == url } }
       if let selected, !selected.isFolder {
@@ -1064,6 +1189,10 @@ final class PaneController: NSViewController, NSSearchFieldDelegate, QLPreviewPa
     watch?.cancel()
     watch = nil
     searchTimer?.invalidate()
+    if QLPreviewPanel.sharedPreviewPanelExists(), QLPreviewPanel.shared().dataSource === self {
+      quickLookURLs = []
+      QLPreviewPanel.shared().orderOut(nil)
+    }
   }
   deinit {
     if let galleryImageRequest { QLThumbnailGenerator.shared.cancel(galleryImageRequest) }
@@ -1082,6 +1211,13 @@ final class PaneController: NSViewController, NSSearchFieldDelegate, QLPreviewPa
     }
   }
   func selectAll() {
+    if state.current.mode == .columns {
+      guard browserNavigationToRestore == nil else { return }
+      browser.selectAll(nil)
+      updateBrowserSelection()
+      selectionDidChange()
+      return
+    }
     selection = Set(items.map(\.url))
     table.selectAll(nil)
     collection.selectionIndexPaths = Set(items.indices.map { IndexPath(item: $0, section: 0) })
@@ -1121,21 +1257,47 @@ final class PaneController: NSViewController, NSSearchFieldDelegate, QLPreviewPa
     return false
   }
   func quickLook() {
+    if QLPreviewPanel.sharedPreviewPanelExists(), QLPreviewPanel.shared().isVisible,
+      QLPreviewPanel.shared().dataSource === self
+    {
+      QLPreviewPanel.shared().orderOut(nil)
+      focusFiles()
+      return
+    }
     quickLookURLs = selectedURLs
     guard !quickLookURLs.isEmpty else { return }
-    if QLPreviewPanel.sharedPreviewPanelExists(), QLPreviewPanel.shared().isVisible {
-      QLPreviewPanel.shared().orderOut(nil)
+    focusFiles()
+    let panel = QLPreviewPanel.shared()!
+    panel.dataSource = self
+    panel.delegate = self
+    panel.makeKeyAndOrderFront(nil)
+    panel.reloadData()
+  }
+  private func syncQuickLookSelection() {
+    guard browserNavigationToRestore == nil, QLPreviewPanel.sharedPreviewPanelExists() else {
+      return
+    }
+    let panel = QLPreviewPanel.shared()!
+    guard panel.isVisible,
+      panel.dataSource === self || (owner?.workspace.active == id && owner?.app.active === owner)
+    else { return }
+    quickLookURLs = selectedURLs
+    if quickLookURLs.isEmpty {
+      panel.orderOut(nil)
     } else {
-      view.window?.makeFirstResponder(view)
-      QLPreviewPanel.shared().makeKeyAndOrderFront(nil)
+      panel.dataSource = self
+      panel.delegate = self
+      panel.reloadData()
     }
   }
   override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool { true }
   override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
+    quickLookURLs = selectedURLs
     panel.dataSource = self
     panel.delegate = self
   }
   override func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
+    guard panel.dataSource === self else { return }
     panel.dataSource = nil
     panel.delegate = nil
   }
@@ -1217,8 +1379,10 @@ final class PaneController: NSViewController, NSSearchFieldDelegate, QLPreviewPa
   }
   @objc func detachPane() {
     guard let owner else { return }
-    var w = Workspace(name: "独立工作台", paths: [currentURL.path])
-    w.panes = [state]
+    var detached = state
+    detached.tabs[detached.selectedTab].path = operationDirectoryURL.path
+    var w = Workspace(name: "独立工作台", paths: [operationDirectoryURL.path])
+    w.panes = [detached]
     w.active = id
     owner.app.openWindow(workspace: w)
     if owner.workspace.panes.count > 1 { owner.closePane(id) }
@@ -1270,12 +1434,19 @@ final class PaneController: NSViewController, NSSearchFieldDelegate, QLPreviewPa
             self.browserCache[url.path] = []
             self.owner?.setStatus(error.localizedDescription)
           }
+          self.isReloadingViews = true
           for column in 0...max(0, browser.lastColumn) {
             let parent =
               (browser.parentForItems(inColumn: column) as? BrowserNode)?.item.url
               ?? self.currentURL
             if parent == url { browser.reloadColumn(column) }
           }
+          if self.state.current.mode == .columns {
+            self.restoreBrowserNavigation()
+            self.updateBrowserSelection()
+          }
+          self.isReloadingViews = false
+          if self.state.current.mode == .columns { self.selectionDidChange() }
         }
       }
     }
@@ -1291,14 +1462,10 @@ final class PaneController: NSViewController, NSSearchFieldDelegate, QLPreviewPa
     (item as? BrowserNode)?.item.name
   }
   @objc func browserSelected() {
+    guard state.current.mode == .columns, !restoringBrowser, !isReloadingViews else { return }
+    browserNavigationToRestore = nil
     owner?.activate(id)
-    let column = browser.selectedColumn
-    guard column >= 0 else { return }
-    let row = browser.selectedRow(inColumn: column)
-    guard row >= 0,
-      let node = browser.item(atRow: row, inColumn: column) as? BrowserNode
-    else { return }
-    selection = [node.item.url]
+    updateBrowserSelection()
     selectionDidChange()
   }
   @objc func browserOpened() { openSelected() }
